@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monster Punch - Brain Brawl (Penjodoh Bilangan)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
+    <!-- MediaPipe Hands & Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            font-family: 'Nunito', sans-serif;
+            background: linear-gradient(135deg, #1a1c29 0%, #3a1c71 50%, #d76d77 100%);
+            min-height: 100vh;
+            color: white;
+            user-select: none;
+            overflow: hidden;
+        }
+        .font-game {
+            font-family: 'Fredoka One', cursive;
+        }
+        /* Custom Game Canvas Overlay Styling */
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        #webcam {
+            transform: scaleX(-1);
+        }
+        /* Mirror hand overlay canvas as well */
+        #hand-canvas {
+            transform: scaleX(-1);
+        }
+        /* Floating Monster Animation */
+        @keyframes float {
+            0% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-15px) rotate(3deg); }
+            100% { transform: translateY(0px) rotate(0deg); }
+        }
+        .monster-float {
+            animation: float 2.5s ease-in-out infinite;
+        }
+        /* Hit Slash Effect Animation */
+        @keyframes slash {
+            0% { opacity: 1; transform: scale(0.5) rotate(0deg); }
+            50% { opacity: 1; transform: scale(1.4) rotate(45deg); }
+            100% { opacity: 0; transform: scale(1.8) rotate(90deg); }
+        }
+        .slash-effect {
+            position: absolute;
+            pointer-events: none;
+            animation: slash 0.35s ease-out forwards;
+            z-index: 50;
+        }
+        /* Screen Flash */
+        .flash-red {
+            animation: flashRed 0.4s ease-out;
+        }
+        @keyframes flashRed {
+            0% { background-color: rgba(239, 68, 68, 0.4); }
+            100% { background-color: transparent; }
+        }
+        .flash-green {
+            animation: flashGreen 0.4s ease-out;
+        }
+        @keyframes flashGreen {
+            0% { background-color: rgba(34, 197, 94, 0.4); }
+            100% { background-color: transparent; }
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen">
+
+    <!-- Screen Flash Overlay -->
+    <div id="flash-overlay" class="fixed inset-0 pointer-events-none z-40 transition-colors duration-300"></div>
+
+    <!-- Main Outer Container -->
+    <div id="game-container" class="flex flex-col justify-between p-4 relative overflow-hidden">
+        
+        <!-- TOP HUD: Score, Lives, Timer -->
+        <header class="flex justify-between items-center z-20 bg-black/40 backdrop-blur-md p-4 rounded-2xl border-2 border-white/20 shadow-2xl">
+            <!-- Score -->
+            <div class="flex items-center gap-3">
+                <div class="bg-yellow-400 p-2 rounded-xl text-black font-game text-xl md:text-2xl shadow-lg flex items-center gap-2">
+                    <span>⭐ SKOR:</span>
+                    <span id="score-text" class="text-3xl text-purple-900">0</span>
+                </div>
+            </div>
+
+            <!-- Question Counter -->
+            <div class="hidden sm:block text-center font-game text-xl text-yellow-300">
+                <span id="question-progress">SOALAN 1 / 10</span>
+            </div>
+
+            <!-- Timer & Hearts -->
+            <div class="flex items-center gap-4">
+                <!-- Hearts -->
+                <div id="hearts-container" class="flex gap-1 text-2xl md:text-3xl">
+                    <span>❤️</span><span>❤️</span><span>❤️</span>
+                </div>
+                <!-- Timer -->
+                <div class="bg-red-500 text-white p-2 px-4 rounded-xl font-game text-xl md:text-2xl shadow-lg flex items-center gap-2">
+                    <span>⏱️</span>
+                    <span id="timer-text">15</span>s
+                </div>
+            </div>
+        </header>
+
+        <!-- MIDDLE: Question Display & Monster Brawl Area -->
+        <main class="flex-1 relative my-2 flex flex-col items-center justify-between z-10">
+            
+            <!-- Question Box -->
+            <div id="question-card" class="bg-gradient-to-r from-purple-800 to-indigo-900 border-4 border-yellow-400 text-white rounded-3xl p-4 md:p-6 w-full max-w-2xl text-center shadow-2xl transform transition-all duration-300 hover:scale-105">
+                <p class="text-sm md:text-base font-semibold text-yellow-300 tracking-widest uppercase mb-1">Soalan Penjodoh Bilangan</p>
+                <h2 id="question-text" class="text-xl md:text-3xl font-game leading-tight mb-2">
+                    Loading Question...
+                </h2>
+                <!-- Dynamic SVG Visual Illustration -->
+                <div id="question-svg" class="w-20 h-20 md:w-24 md:h-24 mx-auto my-1 flex items-center justify-center bg-white/10 rounded-2xl p-2 border border-white/20 shadow-inner">
+                </div>
+            </div>
+
+            <!-- Hand Punch Reticle Cursor -->
+            <div id="fist-cursor" class="absolute w-20 h-20 rounded-full border-4 border-yellow-400 bg-yellow-400/20 pointer-events-none hidden z-30 flex items-center justify-center shadow-lg transition-transform duration-75">
+                <span id="cursor-icon" class="text-3xl animate-ping">✊</span>
+            </div>
+
+            <!-- Monsters Options Container (3 Floating Monsters) -->
+            <div id="monsters-container" class="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-5xl my-auto px-4 z-20">
+                <!-- Monsters will be dynamically rendered via JS -->
+            </div>
+
+        </main>
+
+        <!-- WEBCAM & HAND TRACKING OVERLAY CANVAS -->
+        <div class="absolute inset-0 pointer-events-none z-0 flex items-center justify-center opacity-30">
+            <video id="webcam" class="w-full h-full object-cover rounded-3xl" autoplay playsinline muted></video>
+            <canvas id="hand-canvas" class="absolute inset-0 w-full h-full object-cover"></canvas>
+        </div>
+
+        <!-- CAMERA PERMISSION / LOADING SCREEN -->
+        <div id="start-overlay" class="absolute inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center p-6 text-center backdrop-blur-lg">
+            <div class="max-w-md bg-slate-800/80 p-8 rounded-3xl border-4 border-yellow-400 shadow-2xl flex flex-col items-center">
+                <div class="text-6xl mb-4 animate-bounce">🥊👹</div>
+                <h1 class="text-3xl md:text-4xl font-game text-yellow-400 mb-2">MONSTER PUNCH</h1>
+                <h2 class="text-lg md:text-xl font-game text-purple-300 mb-4">BRAIN BRAWL: Penjodoh Bilangan</h2>
+                
+                <p class="text-slate-300 mb-6 text-sm md:text-base leading-relaxed">
+                    Gunakan <strong>Kamera Webcam</strong> anda! Kepalkan tangan menjadi <strong>TUMBUKAN ✊</strong> di depan kamera dan halakan ke arah Monster yang membawa jawapan yang betul untuk memukulnya!
+                </p>
+
+                <div class="bg-purple-900/60 p-4 rounded-xl text-left text-xs md:text-sm text-purple-200 mb-6 border border-purple-500/30">
+                    <p class="font-bold text-yellow-300 mb-1">🎯 Cara Bermain:</p>
+                    <ul class="list-disc list-inside space-spacing-1">
+                        <li>Benarkan akses kamera webcam.</li>
+                        <li>Gariskan jawapan betul pada soalan Penjodoh Bilangan.</li>
+                        <li>Kepalkan tangan (fist ✊) & gerakkan cursor ke monster.</li>
+                        <li>Tumbuk monster jawapan betul sebelum masa tamat!</li>
+                    </ul>
+                </div>
+
+                <button id="start-btn" class="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-game text-xl py-4 px-8 rounded-2xl shadow-xl transform active:scale-95 transition-all flex items-center justify-center gap-3">
+                    <span>MULA MAIN SEKARANG!</span> 🚀
+                </button>
+                <p id="camera-status" class="mt-4 text-xs text-yellow-400 animate-pulse font-semibold">Menunggu kebenaran kamera...</p>
+            </div>
+        </div>
+
+        <!-- GAME OVER / VICTORY OVERLAY -->
+        <div id="gameover-overlay" class="absolute inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-6 text-center backdrop-blur-xl hidden">
+            <div class="max-w-md bg-slate-800 p-8 rounded-3xl border-4 border-purple-500 shadow-2xl flex flex-col items-center">
+                <div id="end-emoji" class="text-7xl mb-4">🏆</div>
+                <h2 id="end-title" class="text-3xl md:text-4xl font-game text-yellow-400 mb-2">SYABAS! JUARA!</h2>
+                <p id="end-subtitle" class="text-slate-300 mb-4">Anda telah berjaya menewaskan semua monster!</p>
+                
+                <div class="bg-slate-700/50 p-6 rounded-2xl w-full my-4 border border-white/10">
+                    <div class="text-sm text-slate-400 font-bold mb-1">JUMLAH SKOR</div>
+                    <div id="final-score" class="text-5xl font-game text-green-400">100</div>
+                </div>
+
+                <button id="restart-btn" class="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-game text-xl py-4 px-8 rounded-2xl shadow-xl transform active:scale-95 transition-all">
+                    MAIN SEMULA 🔄
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ==========================================
+        // AUDIO SYNTHESIZER (Web Audio API - No External Files)
+        // ==========================================
+        class SoundFX {
+            constructor() {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            // Punch Impact Sound
+            playPunch() {
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.15);
+                
+                gain.gain.setValueAtTime(1, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+                
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.15);
+            }
+
+            // Correct Answer Chime
+            playCorrect() {
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const now = this.ctx.currentTime;
+                const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+                notes.forEach((freq, idx) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+                    gain.gain.setValueAtTime(0.3, now + idx * 0.08);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.2);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now + idx * 0.08);
+                    osc.stop(now + idx * 0.08 + 0.2);
+                });
+            }
+
+            // Wrong Answer Buzz
+            playWrong() {
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(120, this.ctx.currentTime);
+                osc.frequency.setValueAtTime(80, this.ctx.currentTime + 0.15);
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.3);
+            }
+
+            // Game Victory Fanfare
+            playVictory() {
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                const notes = [440, 554.37, 659.25, 880];
+                notes.forEach((freq, i) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime + i * 0.12);
+                    gain.gain.setValueAtTime(0.4, this.ctx.currentTime + i * 0.12);
+                    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + i * 0.12 + 0.4);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(this.ctx.currentTime + i * 0.12);
+                    osc.stop(this.ctx.currentTime + i * 0.12 + 0.4);
+                });
+            }
+        }
+
+        const sfx = new SoundFX();
+
+        // ==========================================
+        // QUESTIONS DATASET (Bahasa Melayu Tahun 3)
+        // ==========================================
+        const questionsData = [
+            {
+                q: "Ahmad membeli se______ pensel di kedai alat tulis.",
+                options: ["batang", "buah", "biji"],
+                answer: "batang",
+                svg: `<svg class="w-16 h-16 text-yellow-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M18 2l4 4L7.5 19.5 2 22l2.5-5.5L18 2z"></path></svg>`
+            },
+            {
+                q: "Ibu memotong se______ kek untuk dihidangkan kepada tetamu.",
+                options: ["potong", "ekor", "helai"],
+                answer: "potong",
+                svg: `<svg class="w-16 h-16 text-pink-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"></path><path d="M4 16h16"></path><path d="M12 3v8"></path></svg>`
+            },
+            {
+                q: "Sebahagian se______ kucing sedang tidur di bawah meja.",
+                options: ["ekor", "keping", "kuntum"],
+                answer: "ekor",
+                svg: `<svg class="w-16 h-16 text-orange-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 5c.67 0 1.35.09 2 .26 1.78-2 5.03-2.84 6.42-2.26 1.4.58 1.4 3.4 0 5.4 1.63 2.1 1.6 5.3 0 7.4-1.6 2.1-5.1 2.8-8.4 2.8S4 17.8 2.4 15.7c-1.6-2.1-1.6-5.3 0-7.4-1.4-2 0-4.82 1.4-5.4 1.39-.58 4.64.26 6.42 2.26.65-.17 1.33-.26 2-.26z"></path></svg>`
+            },
+            {
+                q: "Kakak menerima se______ surat daripada kawan karabnya.",
+                options: ["pucuk", "larik", "bentuk"],
+                answer: "pucuk",
+                svg: `<svg class="w-16 h-16 text-blue-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>`
+            },
+            {
+                q: "Ayah membaca se______ surat khabar sebelum pergi bekerja.",
+                options: ["naskhah", "lembar", "utas"],
+                answer: "naskhah",
+                svg: `<svg class="w-16 h-16 text-emerald-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"></path><path d="M18 14h-8"></path><path d="M18 18h-8"></path><path d="M18 10h-8"></path></svg>`
+            },
+            {
+                q: "Abang memakai se______ jam tangan yang baharu.",
+                options: ["bentuk", "buah", "utas"],
+                answer: "utas",
+                svg: `<svg class="w-16 h-16 text-purple-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="6"></circle><path d="M12 2v4M12 18v4M12 9v3l2 2"></path></svg>`
+            },
+            {
+                q: "Adik memetik se______ bunga ros di halaman rumah.",
+                options: ["kuntum", "biji", "helai"],
+                answer: "kuntum",
+                svg: `<svg class="w-16 h-16 text-red-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 7a5 5 0 0 1 5 5c0 4.5-5 9-5 9s-5-4.5-5-9a5 5 0 0 1 5-5z"></path><path d="M12 2v5"></path></svg>`
+            },
+            {
+                q: "Pak Cik Hassan menggunakan se______ bilik rumah untuk dijadikan stor.",
+                options: ["buah", "pintu", "biji"],
+                answer: "buah",
+                svg: `<svg class="w-16 h-16 text-amber-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`
+            },
+            {
+                q: "Siti menulis nota di atas se______ kertas putih.",
+                options: ["helai", "batang", "larik"],
+                answer: "helai",
+                svg: `<svg class="w-16 h-16 text-cyan-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`
+            },
+            {
+                q: "Nenek menghadiahkan se______ cincin emas kepada ibu.",
+                options: ["bentuk", "biji", "potong"],
+                answer: "bentuk",
+                svg: `<svg class="w-16 h-16 text-yellow-300 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="7"></circle><path d="M12 2v3M12 19v3"></path></svg>`
+            }
+        ];
+
+        // Monster SVGs (3 Visual Variants)
+        const monsterVisuals = [
+            // Red Monster
+            `<svg class="w-24 h-24 md:w-32 md:h-32 drop-shadow-2xl monster-float" viewBox="0 0 100 100">
+                <path d="M20,80 Q10,40 50,15 Q90,40 80,80 Q50,95 20,80 Z" fill="#ef4444" stroke="#991b1b" stroke-width="4"/>
+                <circle cx="35" cy="45" r="10" fill="white"/><circle cx="35" cy="45" r="4" fill="black"/>
+                <circle cx="65" cy="45" r="10" fill="white"/><circle cx="65" cy="45" r="4" fill="black"/>
+                <path d="M35,65 Q50,80 65,65" fill="none" stroke="black" stroke-width="4" stroke-linecap="round"/>
+                <polygon points="40,65 45,72 50,65" fill="white"/>
+                <polygon points="50,65 55,72 60,65" fill="white"/>
+            </svg>`,
+            // Purple Monster
+            `<svg class="w-24 h-24 md:w-32 md:h-32 drop-shadow-2xl monster-float" viewBox="0 0 100 100">
+                <path d="M15,50 Q15,10 50,10 Q85,10 85,50 Q85,90 50,90 Q15,90 15,50 Z" fill="#a855f7" stroke="#6b21a8" stroke-width="4"/>
+                <circle cx="50" cy="35" r="14" fill="white"/><circle cx="50" cy="35" r="6" fill="#dc2626"/>
+                <path d="M30,65 Q50,50 70,65 Q50,85 30,65 Z" fill="#581c87"/>
+            </svg>`,
+            // Green Monster
+            `<svg class="w-24 h-24 md:w-32 md:h-32 drop-shadow-2xl monster-float" viewBox="0 0 100 100">
+                <path d="M25,85 L15,30 L50,10 L85,30 L75,85 Z" fill="#22c55e" stroke="#15803d" stroke-width="4"/>
+                <circle cx="35" cy="40" r="8" fill="white"/><circle cx="35" cy="40" r="3" fill="black"/>
+                <circle cx="65" cy="40" r="8" fill="white"/><circle cx="65" cy="40" r="3" fill="black"/>
+                <line x1="30" y1="65" x2="70" y2="65" stroke="black" stroke-width="5" stroke-linecap="round"/>
+                <polygon points="20,25 10,10 30,20" fill="#15803d"/>
+                <polygon points="80,25 90,10 70,20" fill="#15803d"/>
+            </svg>`
+        ];
+
+        // ==========================================
+        // GAME STATE MANAGEMENT
+        // ==========================================
+        let currentQuestionIdx = 0;
+        let score = 0;
+        let lives = 3;
+        let timer = 15;
+        let timerInterval = null;
+        let isGameActive = false;
+        let handX = 0;
+        let handY = 0;
+        let isFist = false;
+        let punchCooldown = false;
+
+        // DOM Elements
+        const webcamElem = document.getElementById('webcam');
+        const canvasElem = document.getElementById('hand-canvas');
+        const canvasCtx = canvasElem.getContext('2d');
+        const fistCursor = document.getElementById('fist-cursor');
+        const startOverlay = document.getElementById('start-overlay');
+        const gameoverOverlay = document.getElementById('gameover-overlay');
+        const startBtn = document.getElementById('start-btn');
+        const restartBtn = document.getElementById('restart-btn');
+        const questionText = document.getElementById('question-text');
+        const questionSvg = document.getElementById('question-svg');
+        const monstersContainer = document.getElementById('monsters-container');
+        const scoreText = document.getElementById('score-text');
+        const timerText = document.getElementById('timer-text');
+        const heartsContainer = document.getElementById('hearts-container');
+        const questionProgress = document.getElementById('question-progress');
+        const flashOverlay = document.getElementById('flash-overlay');
+        const cameraStatus = document.getElementById('camera-status');
+
+        // ==========================================
+        // MEDIAPIPE HAND TRACKING SETUP
+        // ==========================================
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
+        });
+
+        hands.onResults(onHandResults);
+
+        // Webcam Setup using MediaPipe CameraUtils
+        const camera = new Camera(webcamElem, {
+            onFrame: async () => {
+                await hands.send({ image: webcamElem });
+            },
+            width: 1280,
+            height: 720
+        });
+
+        // Initialize Camera
+        camera.start().then(() => {
+            cameraStatus.innerText = "Kamera bersedia! Klik butang di bawah untuk bermula.";
+            cameraStatus.classList.remove('animate-pulse');
+            cameraStatus.classList.add('text-green-400');
+        }).catch(err => {
+            cameraStatus.innerText = "Ralat Kamera: Sila izinkan akses webcam!";
+            cameraStatus.classList.add('text-red-400');
+            console.error(err);
+        });
+
+        // Handle Hand Landmarks & Fist Detection
+        function onHandResults(results) {
+            // Resize Canvas to match window
+            canvasElem.width = window.innerWidth;
+            canvasElem.height = window.innerHeight;
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElem.width, canvasElem.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+
+                // Draw Hand Skeleton Visualization
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 3 });
+                drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 1, radius: 4 });
+
+                // Track Palm / Index MCP as Position (Landmark 9)
+                const palmPt = landmarks[9];
+                
+                // Convert Normalized Coordinates to Screen Coordinates (Flipped horizontally due to video mirror)
+                handX = (1 - palmPt.x) * window.innerWidth;
+                handY = palmPt.y * window.innerHeight;
+
+                // Update Cursor Position UI
+                fistCursor.style.left = `${handX - 40}px`;
+                fistCursor.style.top = `${handY - 40}px`;
+                fistCursor.classList.remove('hidden');
+
+                // Fist Detection Logic:
+                // Check distance between fingertips and wrist/palm
+                const wrist = landmarks[0];
+                const indexTip = landmarks[8];
+                const middleTip = landmarks[12];
+                const ringTip = landmarks[16];
+                const pinkyTip = landmarks[20];
+
+                const indexPip = landmarks[6];
+                const middlePip = landmarks[10];
+
+                // Check if tips are folded closer to wrist than PIP joints
+                const isIndexFolded = distance(indexTip, wrist) < distance(indexPip, wrist);
+                const isMiddleFolded = distance(middleTip, wrist) < distance(middlePip, wrist);
+
+                // Detect Punch Fist State
+                if (isIndexFolded && isMiddleFolded) {
+                    if (!isFist) {
+                        isFist = true;
+                        document.getElementById('cursor-icon').innerText = "💥";
+                        fistCursor.classList.add('scale-125');
+                        
+                        // Execute Hit Check if Game Active
+                        if (isGameActive && !punchCooldown) {
+                            checkPunchHit(handX, handY);
+                        }
+                    }
+                } else {
+                    isFist = false;
+                    document.getElementById('cursor-icon').innerText = "✋";
+                    fistCursor.classList.remove('scale-125');
+                }
+            } else {
+                fistCursor.classList.add('hidden');
+            }
+            canvasCtx.restore();
+        }
+
+        // Distance Helper
+        function distance(p1, p2) {
+            return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+        }
+
+        // ==========================================
+        // GAMEPLAY MECHANICS
+        // ==========================================
+
+        function startGame() {
+            score = 0;
+            lives = 3;
+            currentQuestionIdx = 0;
+            isGameActive = true;
+            
+            updateHUD();
+            startOverlay.classList.add('hidden');
+            gameoverOverlay.classList.add('hidden');
+            
+            loadQuestion();
+        }
+
+        function loadQuestion() {
+            if (currentQuestionIdx >= questionsData.length) {
+                endGame(true);
+                return;
+            }
+
+            const qData = questionsData[currentQuestionIdx];
+            questionText.innerText = qData.q;
+            questionSvg.innerHTML = qData.svg;
+            questionProgress.innerText = `SOALAN ${currentQuestionIdx + 1} / ${questionsData.length}`;
+
+            // Render 3 Monster Choices
+            monstersContainer.innerHTML = '';
+            
+            // Shuffle choices for variety
+            const shuffledOptions = [...qData.options].sort(() => Math.random() - 0.5);
+
+            shuffledOptions.forEach((optText, index) => {
+                const monsterWrap = document.createElement('div');
+                monsterWrap.className = 'monster-card flex flex-col items-center justify-center p-4 bg-white/10 backdrop-blur-md rounded-3xl border-2 border-white/20 shadow-xl cursor-pointer hover:border-yellow-400 transition-all duration-300 relative group';
+                monsterWrap.dataset.answer = optText;
+
+                // Pick SVG design index
+                const svgVisual = monsterVisuals[index % monsterVisuals.length];
+
+                monsterWrap.innerHTML = `
+                    <div class="monster-svg-wrap transition-transform duration-300 group-hover:scale-110">
+                        ${svgVisual}
+                    </div>
+                    <div class="mt-2 bg-yellow-400 text-purple-950 font-game text-2xl md:text-3xl px-6 py-2 rounded-2xl shadow-lg border-2 border-white tracking-wide">
+                        ${optText}
+                    </div>
+                `;
+
+                // Add Touch / Click Alternative for desktop testing
+                monsterWrap.addEventListener('click', (e) => {
+                    if (isGameActive && !punchCooldown) {
+                        const rect = monsterWrap.getBoundingClientRect();
+                        triggerHit(monsterWrap, optText, rect.left + rect.width/2, rect.top + rect.height/2);
+                    }
+                });
+
+                monstersContainer.appendChild(monsterWrap);
+            });
+
+            // Reset Timer (15 seconds per question)
+            resetTimer();
+        }
+
+        function resetTimer() {
+            clearInterval(timerInterval);
+            timer = 15;
+            timerText.innerText = timer;
+            
+            timerInterval = setInterval(() => {
+                if (!isGameActive) return;
+                timer--;
+                timerText.innerText = timer;
+
+                if (timer <= 0) {
+                    clearInterval(timerInterval);
+                    handleTimeOut();
+                }
+            }, 1000);
+        }
+
+        // Check if hand collision hits a monster
+        function checkPunchHit(x, y) {
+            const monsters = document.querySelectorAll('.monster-card');
+            monsters.forEach((monster) => {
+                const rect = monster.getBoundingClientRect();
+                // Collision Detection Box
+                if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+                    const ans = monster.dataset.answer;
+                    triggerHit(monster, ans, x, y);
+                }
+            });
+        }
+
+        function triggerHit(monsterElem, chosenAnswer, hitX, hitY) {
+            punchCooldown = true;
+            sfx.playPunch();
+
+            // Spawn Slash Effect
+            createSlashEffect(hitX, hitY);
+
+            const currentQ = questionsData[currentQuestionIdx];
+
+            if (chosenAnswer === currentQ.answer) {
+                // CORRECT PUNCH!
+                sfx.playCorrect();
+                score += 10;
+                flashScreen('green');
+                
+                // Explode Monster FX
+                monsterElem.classList.add('scale-125', 'opacity-0');
+                monsterElem.style.transition = 'all 0.4s ease-out';
+
+                setTimeout(() => {
+                    currentQuestionIdx++;
+                    updateHUD();
+                    punchCooldown = false;
+                    loadQuestion();
+                }, 500);
+
+            } else {
+                // WRONG PUNCH!
+                sfx.playWrong();
+                lives--;
+                flashScreen('red');
+
+                // Shake Monster
+                monsterElem.classList.add('translate-x-4');
+                setTimeout(() => monsterElem.classList.remove('translate-x-4'), 100);
+
+                updateHUD();
+
+                if (lives <= 0) {
+                    setTimeout(() => endGame(false), 500);
+                } else {
+                    setTimeout(() => {
+                        punchCooldown = false;
+                    }, 600);
+                }
+            }
+        }
+
+        function handleTimeOut() {
+            sfx.playWrong();
+            lives--;
+            flashScreen('red');
+            updateHUD();
+
+            if (lives <= 0) {
+                endGame(false);
+            } else {
+                currentQuestionIdx++;
+                loadQuestion();
+            }
+        }
+
+        function createSlashEffect(x, y) {
+            const slash = document.createElement('div');
+            slash.className = 'slash-effect text-6xl';
+            slash.innerText = '💥';
+            slash.style.left = `${x - 40}px`;
+            slash.style.top = `${y - 40}px`;
+            document.body.appendChild(slash);
+
+            setTimeout(() => slash.remove(), 400);
+        }
+
+        function flashScreen(type) {
+            flashOverlay.className = `fixed inset-0 pointer-events-none z-40 ${type === 'red' ? 'flash-red' : 'flash-green'}`;
+            setTimeout(() => flashOverlay.className = 'fixed inset-0 pointer-events-none z-40', 400);
+        }
+
+        function updateHUD() {
+            scoreText.innerText = score;
+            
+            // Hearts UI
+            heartsContainer.innerHTML = '';
+            for (let i = 0; i < 3; i++) {
+                const heart = document.createElement('span');
+                heart.innerText = i < lives ? '❤️' : '🖤';
+                heartsContainer.appendChild(heart);
+            }
+        }
+
+        function endGame(isVictory) {
+            isGameActive = false;
+            clearInterval(timerInterval);
+
+            if (isVictory) {
+                sfx.playVictory();
+                document.getElementById('end-emoji').innerText = '🏆';
+                document.getElementById('end-title').innerText = 'SYABAS! JUARA!';
+                document.getElementById('end-subtitle').innerText = 'Anda hebat dalam Penjodoh Bilangan!';
+            } else {
+                document.getElementById('end-emoji').innerText = '💀';
+                document.getElementById('end-title').innerText = 'GAME OVER!';
+                document.getElementById('end-subtitle').innerText = 'Cuba lagi untuk menewaskan semua monster!';
+            }
+
+            document.getElementById('final-score').innerText = score;
+            gameoverOverlay.classList.remove('hidden');
+        }
+
+        // ==========================================
+        // EVENT LISTENERS
+        // ==========================================
+        startBtn.addEventListener('click', () => {
+            // Unlock AudioContext on user action
+            if (sfx.ctx.state === 'suspended') {
+                sfx.ctx.resume();
+            }
+            startGame();
+        });
+
+        restartBtn.addEventListener('click', () => {
+            startGame();
+        });
+
+    </script>
+</body>
+</html>
